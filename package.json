@@ -37,8 +37,10 @@
         "kind": "odata-v2",
         "model": "srv/external/EPM_REF_APPS_PROD_MAN_SRV",
         "credentials": {
-          "destination": "ES5_Destination",
-          "path": "/sap/opu/odata/SAP/EPM_REF_APPS_PROD_MAN_SRV"
+         "url": "https://sapes5.sapdevcenter.com/sap/opu/odata/sap/EPM_REF_APPS_PROD_MAN_SRV",
+         "authentication": "BasicAuthentication",
+         "username": "P2008607084",
+         "password": "Kannayya7274@"
         }
       },
       "auth": "dummy"
