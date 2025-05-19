@@ -1,8 +1,8 @@
 using { EPM_REF_APPS_PROD_MAN_SRV as external } from './external/EPM_REF_APPS_PROD_MAN_SRV';
 
 service main {
-  @readonly
-  function GetProductsWithSuppliers() returns array of ProductWithSupplier;
+  //@readonly
+  action GetProductsWithSuppliers(input:String) returns array of SupplierDetails;
   entity Products as projection on external.Products;
   entity Suppliers as projection on external.Suppliers;
 }
