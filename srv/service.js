@@ -1,115 +1,118 @@
 const cds = require('@sap/cds');
-const {HuggingFaceTransformersEmbeddings} = require('@langchain/community/embeddings/huggingface_transformers')
-const { FaissStore } = require("@langchain/community/vectorstores/faiss");
+const { HuggingFaceTransformersEmbeddings } = require('@langchain/community/embeddings/huggingface_transformers');
+const { FaissStore } = require('@langchain/community/vectorstores/faiss');
 
 module.exports = cds.service.impl(async function () {
   const epm = await cds.connect.to('EPM_REF_APPS_PROD_MAN_SRV');
-  
+
+  // Load local embedding model
   const embeddings = new HuggingFaceTransformersEmbeddings({
-    modelName: "Xenova/all-MiniLM-L6-v2",
+    modelName: 'Xenova/all-MiniLM-L6-v2'
   });
+
   let vectorStore;
 
-  this.on('GetProductsWithSuppliers', async (req) => {
-    const question = req.data.input;
-    // Fetch all products with all required fields
-    const products = await epm.run(
-      SELECT.from('Products').columns(
-        'Id',
-        'Name',
-        'Description',
-        'Price',
-        'CurrencyCode',
-        'ImageUrl',
-        'SupplierId',
-        'StockQuantity',
-        'SubCategoryId',
-        'SubCategoryName',
-        'MainCategoryId',
-        'MainCategoryName',
-        'LastModified',
-        'DimensionHeight',
-        'DimensionWidth',
-        'DimensionDepth',
-        'DimensionUnit',
-        'QuantityUnit',
-        'MeasureUnit',
-        'AverageRating',
-        'RatingCount',
-        'WeightMeasure',
-        'WeightUnit'
-      )
-    );
+  // Fetch product and supplier data from OData
+  const products = await epm.run(SELECT.from('Products'));
+  const suppliers = await epm.run(SELECT.from('Suppliers'));
 
-    // Fetch all suppliers
-    const suppliers = await epm.run(
-      SELECT.from('Suppliers').columns(
-        'Id',
-        'Name',
-        'Phone',
-        'Email',
-        'WebAddress',
-        'FormattedAddress',
-        'FormattedContactName',
-        'ContactPhone1',
-        'ContactPhone2',
-        'ContactEmail'
-      )
-    );
+  const supplierMap = new Map(suppliers.map(s => [s.Id, s]));
 
-    const supplierMap = new Map(suppliers.map(s => [s.Id, s]));
+  // Merge product with supplier info
+  const enrichedProducts = products.map(p => ({
+    ...p,
+    SupplierName: supplierMap.get(p.SupplierId)?.Name || ''
+  }));
 
-    // Map products with supplier details embedded
-    products.map(p => ({
-      Id              : p.Id,
-      Name            : p.Name,
-      Description     : p.Description,
-      Price           : p.Price,
-      CurrencyCode    : p.CurrencyCode,
-      ImageUrl        : p.ImageUrl,
-      SupplierId      : p.SupplierId,
-      StockQuantity   : p.StockQuantity,
-      SubCategoryId   : p.SubCategoryId,
-      SubCategoryName : p.SubCategoryName,
-      MainCategoryId  : p.MainCategoryId,
-      MainCategoryName: p.MainCategoryName,
-      LastModified    : p.LastModified,
-      DimensionHeight : p.DimensionHeight,
-      DimensionWidth  : p.DimensionWidth,
-      DimensionDepth  : p.DimensionDepth,
-      DimensionUnit   : p.DimensionUnit,
-      QuantityUnit    : p.QuantityUnit,
-      MeasureUnit     : p.MeasureUnit,
-      AverageRating   : p.AverageRating,
-      RatingCount     : p.RatingCount,
-      WeightMeasure   : p.WeightMeasure,
-      WeightUnit      : p.WeightUnit,
-      Supplier        : supplierMap.get(p.SupplierId) || {}
+  // Build vector store if not already done
+  if (!vectorStore) {
+    const docs = enrichedProducts.map(p => ({
+      pageContent: p.Description || '',
+      metadata: {
+        ...p,
+        SupplierName: supplierMap.get(p.SupplierId)?.Name || ''
+      }
     }));
 
-    if (!vectorStore) {
-      const docs = products.map((u) => ({
-        ...u,
-        pageContent: u.Description,  // FIXED
-        metadata: {
-          id: u.Id,                 // FIXED
-          name: u.Name
-        }
-      }));
-      vectorStore = await FaissStore.fromTexts(
-        // // docs,
-        docs.map(d => d.pageContent),
-        docs.map(d => d.metadata),
-        // products,
-        embeddings
-      );
+    vectorStore = await FaissStore.fromTexts(
+      docs.map(d => d.pageContent),
+      docs.map(d => d.metadata),
+      embeddings
+    );
+  }
+
+  // Helper: Normalize field name for matching
+  function normalizeFieldName(field) {
+    return field.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
+  }
+
+  // Helper: Match user question to available fields dynamically
+  function extractRequestedFieldsFromQuestion(question, sampleProduct) {
+    const normalizedFields = Object.keys(sampleProduct).map(key => ({
+      original: key,
+      normalized: normalizeFieldName(key)
+    }));
+
+    const lowerQuestion = question.toLowerCase();
+    const matchedFields = [];
+
+    for (const field of normalizedFields) {
+      if (lowerQuestion.includes(field.normalized)) {
+        matchedFields.push(field.original);
+      }
     }
-    const results = await vectorStore.similaritySearch(question, 2);
-    
-      return results.map(res => ({
-        name: res.metadata.name,
-        description: res.pageContent
-      }));
+
+    return [...new Set(matchedFields)];
+  }
+
+  // Define custom askBot action
+  this.on('askBot', async (req) => {
+    const input = req.data?.input?.trim?.();
+    if (!input) return req.error(400, "Input question is empty.");
+
+    const productIdMatch = input.match(/\b[A-Z]{2,}-\d{3,4}\b/); // e.g., HT-1000
+    const requestedFields = extractRequestedFieldsFromQuestion(input, products[0]);
+
+    if (!requestedFields.length) {
+      return req.error(400, "No relevant fields found in the question.");
+    }
+
+    if (productIdMatch) {
+      const productId = productIdMatch[0];
+      const product = enrichedProducts.find(p => p.Id?.toLowerCase() === productId.toLowerCase());
+
+      if (!product) return req.error(404, `Product with ID ${productId} not found.`);
+
+      const result = {};
+      for (const field of requestedFields) {
+        if (field in product) {
+          result[field] = product[field];
+        }
+      }
+
+      // Always include Id in result
+      result["Id"] = product.Id;
+      return [result];
+    }
+
+    // Fallback to semantic similarity
+    const results = await vectorStore.similaritySearch(input, 1);
+    const bestMatch = results?.[0];
+
+    if (!bestMatch) {
+      return req.error(404, "No relevant product found.");
+    }
+
+    const result = {};
+    for (const field of requestedFields) {
+      if (field in bestMatch.metadata) {
+        result[field] = bestMatch.metadata[field];
+      }
+    }
+
+    // Always include Id in semantic fallback
+    result["Id"] = bestMatch.metadata.Id;
+
+    return [result];
   });
- 
 });

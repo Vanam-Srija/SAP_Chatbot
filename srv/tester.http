@@ -1,0 +1,7 @@
+### Test askBot function### Test GetProductsWithSuppliers chatbot action
+POST http://localhost:4004/odata/v4/main/askBot
+Content-Type: application/json
+
+{
+  "input": "Give me sub category id, stock quantity of HT-1003"
+}
