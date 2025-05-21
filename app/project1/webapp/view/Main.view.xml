@@ -2,5 +2,34 @@
     xmlns:mvc="sap.ui.core.mvc"
     xmlns="sap.m">
     <Page id="page" title="{i18n>title}">
+    <VBox class="sapUiSmallMargin">
+    <Text text="Ask your question:" class="sapUiSmallMarginBottom"/>
+    <TextArea
+      id="chatInput"
+      rows="3"
+      growing="true"
+      placeholder="e.g., What is the price of product HT-1001?"
+      width="100%"/>
+    
+    <Button
+      text="Send"
+      type="Emphasized"
+      press=".onSend"
+      class="sapUiSmallMarginTop"/>
+    
+    <Text text="Bot Response:" class="sapUiMediumMarginTop sapUiSmallMarginBottom"/>
+    
+    <TextArea
+      id="chatResponse"
+      rows="6"
+      editable="false"
+      width="100%"
+      value=""
+      growing="true"
+      valueLiveUpdate="true"
+      class="sapUiSmallMarginBottom"/>
+
+  </VBox>
+
     </Page>
 </mvc:View>

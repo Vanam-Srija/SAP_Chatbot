@@ -21,7 +21,6 @@ sap.ui.define([
 
             // enable routing
             this.getRouter().initialize();
-            this.getmychatbot();
         },
         getmychatbot: function() {
             // Check if the chatbot script is already present
