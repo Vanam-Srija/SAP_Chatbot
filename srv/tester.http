@@ -3,8 +3,12 @@ POST http://localhost:4004/odata/v4/main/askBot
 Content-Type: application/json
 
 {
-  "input": "Give me Name, sub category id, Price of HT-1003"
+  "input": "What is the gross amount, customer id status and note of sales order 0500000000 ?"
 }
+
+
+####
+POST http://localhost:4004/odata/v4/main/readSalesOrders
 
 ####
 http://localhost:4004/odata/v4/main/$metadata

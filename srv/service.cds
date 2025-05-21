@@ -1,7 +1,7 @@
-using { EPM_REF_APPS_PROD_MAN_SRV as external } from './external/EPM_REF_APPS_PROD_MAN_SRV';
+using { GWSAMPLE_BASIC as external } from './external/GWSAMPLE_BASIC';
 
 service main {
   //@readonly
-  action askBot(input:String) returns array of Products;
-  entity Products as projection on external.Products;
+  action askBot(input:String) returns array of SalesOrderSet;
+  entity SalesOrderSet as projection on external.SalesOrderSet;
 }

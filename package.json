@@ -49,7 +49,17 @@
           "password": "Kannayya7274@"
         }
       },
-      "auth": "dummy"
+      "auth": "dummy",
+      "GWSAMPLE_BASIC": {
+        "kind": "odata-v2",
+        "model": "srv/external/GWSAMPLE_BASIC",
+        "credentials": {
+          "url": "https://sapes5.sapdevcenter.com/sap/opu/odata/IWBEP/GWSAMPLE_BASIC",
+          "authentication": "BasicAuthentication",
+          "username": "P2008607084",
+          "password": "Kannayya7274@"
+        }
+      }
     }
   }
 }

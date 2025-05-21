@@ -1,54 +1,65 @@
 const cds = require('@sap/cds');
+const path = require('path');
+const fs = require('fs');
+const storePath = path.resolve(__dirname, 'salesorder-faiss-index');
 const { HuggingFaceTransformersEmbeddings } = require('@langchain/community/embeddings/huggingface_transformers');
 const { FaissStore } = require('@langchain/community/vectorstores/faiss');
 
 module.exports = cds.service.impl(async function () {
-  const epm = await cds.connect.to('EPM_REF_APPS_PROD_MAN_SRV');
+  const gwsample = await cds.connect.to('GWSAMPLE_BASIC');
 
-  // Load local embedding model
+  // Load the local embedding model only once
   const embeddings = new HuggingFaceTransformersEmbeddings({
-    modelName: 'Xenova/all-MiniLM-L6-v2'
+    modelName: 'Xenova/all-MiniLM-L6-v2',
+    modelOptions: { dtype: 'float32' }
   });
+  
 
-  let vectorStore;
+  let salesOrders = [];
+  let vectorStore = null;
 
-  // Fetch product and supplier data from OData
-  const products = await epm.run(SELECT.from('Products'));
-  const suppliers = await epm.run(SELECT.from('Suppliers'));
-
-  const supplierMap = new Map(suppliers.map(s => [s.Id, s]));
-
-  // Merge product with supplier info
-  const enrichedProducts = products.map(p => ({
-    ...p,
-    SupplierName: supplierMap.get(p.SupplierId)?.Name || ''
-  }));
-
-  // Build vector store if not already done
-  if (!vectorStore) {
-    const docs = enrichedProducts.map(p => ({
-      pageContent: p.Description || '',
-      metadata: {
-        ...p,
-        SupplierName: supplierMap.get(p.SupplierId)?.Name || ''
-      }
-    }));
-
-    vectorStore = await FaissStore.fromTexts(
-      docs.map(d => d.pageContent),
-      docs.map(d => d.metadata),
-      embeddings
-    );
+  async function fetchSalesOrdersOnce() {
+    if (!salesOrders.length) {
+      salesOrders = await gwsample.run(SELECT.from('GWSAMPLE_BASIC.SalesOrderSet'));
+      console.log("Fetched Sales Orders:", salesOrders.length);
+    }
+    return salesOrders;
   }
 
-  // Helper: Normalize field name for matching
+  //  Helper to build vector store once
+  async function buildVectorStoreOnce() {
+    if (vectorStore) return vectorStore;
+  
+    if (fs.existsSync(storePath)) {
+      vectorStore = await FaissStore.load(storePath, embeddings);
+    } else {
+      const docs = salesOrders.map(o => ({
+        pageContent: o.Note || o.LifecycleStatusDescription || '',
+        metadata: { ...o }
+      }));
+  
+      vectorStore = await FaissStore.fromTexts(
+        docs.map(d => d.pageContent),
+        docs.map(d => d.metadata),
+        embeddings
+      );
+      await vectorStore.save(storePath);
+      console.log("FAISS vector store saved.");
+    }
+  
+    return vectorStore;
+  }
+  
+
+  // Normalize field names like LifecycleStatusDescription → lifecycle status description
   function normalizeFieldName(field) {
     return field.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
   }
 
-  // Helper: Match user question to available fields dynamically
-  function extractRequestedFieldsFromQuestion(question, sampleProduct) {
-    const normalizedFields = Object.keys(sampleProduct).map(key => ({
+  function extractRequestedFieldsFromQuestion(question, sampleRecord) {
+    if (!sampleRecord) return [];
+
+    const normalizedFields = Object.keys(sampleRecord).map(key => ({
       original: key,
       normalized: normalizeFieldName(key)
     }));
@@ -65,42 +76,60 @@ module.exports = cds.service.impl(async function () {
     return [...new Set(matchedFields)];
   }
 
-  // Define custom askBot action
+  // Main chatbot handler
   this.on('askBot', async (req) => {
     const input = req.data?.input?.trim?.();
     if (!input) return req.error(400, "Input question is empty.");
 
-    const productIdMatch = input.match(/\b[A-Z]{2,}-\d{3,4}\b/); // e.g., HT-1000
-    const requestedFields = extractRequestedFieldsFromQuestion(input, products[0]);
+    await fetchSalesOrdersOnce();
+    await buildVectorStoreOnce();
 
-    if (!requestedFields.length) {
-      return req.error(400, "No relevant fields found in the question.");
+    if (!salesOrders.length) {
+      return req.error(500, "No sales order data available from backend.");
     }
 
-    if (productIdMatch) {
-      const productId = productIdMatch[0];
-      const product = enrichedProducts.find(p => p.Id?.toLowerCase() === productId.toLowerCase());
+    const salesOrderIdMatch = input.match(/\b\d{9,10}\b/); // Match ID like 0500000000
+    const requestedFields = extractRequestedFieldsFromQuestion(input, salesOrders[0]);
 
-      if (!product) return req.error(404, `Product with ID ${productId} not found.`);
+    if (!requestedFields.length) {
+      return req.reply({
+        success: false,
+        message: "No relevant fields found in the question."
+      });
+    }
+
+    // If ID is mentioned directly, find it
+    if (salesOrderIdMatch) {
+      const id = salesOrderIdMatch[0];
+      const order = salesOrders.find(o => o.SalesOrderID === id);
+
+      if (!order) {
+        return req.reply({
+          success: false,
+          message: `Sales Order with ID ${id} not found.`
+        });
+      }
 
       const result = {};
       for (const field of requestedFields) {
-        if (field in product) {
-          result[field] = product[field];
+        if (field in order) {
+          result[field] = order[field];
         }
       }
 
-      // Always include Id in result
-      result["Id"] = product.Id;
+      result["SalesOrderID"] = order.SalesOrderID;
       return [result];
     }
 
-    // Fallback to semantic similarity
+    // Otherwise do semantic similarity match
     const results = await vectorStore.similaritySearch(input, 1);
     const bestMatch = results?.[0];
 
     if (!bestMatch) {
-      return req.error(404, "No relevant product found.");
+      return req.reply({
+        success: false,
+        message: "No relevant sales order found."
+      });
     }
 
     const result = {};
@@ -110,9 +139,8 @@ module.exports = cds.service.impl(async function () {
       }
     }
 
-    // Always include Id in semantic fallback
-    result["Id"] = bestMatch.metadata.Id;
-
+    result["SalesOrderID"] = bestMatch.metadata.SalesOrderID;
     return [result];
   });
+
 });
