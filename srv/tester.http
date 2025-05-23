@@ -1,14 +1,65 @@
-### Test askBot function### Test GetProductsWithSuppliers chatbot action
+### Get all Order ID's Whose Delivery status is Delivered
 POST http://localhost:4004/odata/v4/main/askBot
 Content-Type: application/json
 
 {
-  "input": "What is the gross amount, customer id status and note of sales order 0500000000 ?"
+  "input": "Give me all orders where delivery status is initial"
 }
 
+####
+### Test fetchPartnerWithOrders
+POST http://localhost:4004/odata/v4/main/fetchCurrencyCodes
+Content-Type: application/json
+
+{}
+
+
+### Test fetchPartnerWithOrders
+POST http://localhost:4004/odata/v4/main/fetchSalesOrdersByCountry
+Content-Type: application/json
+
+{
+  "country": "AR"
+}
+
+### Get all Aggregations
+POST http://localhost:4004/odata/v4/main/askBot
+Content-Type: application/json
+
+{
+  "input": "Show me the maximum tax amount of all orders"
+}
+
+###
+GET http://localhost:4004/odata/v4/main/BusinessPartnerSet?$expand=ToSalesOrders
+
+
+##########
+POST http://localhost:4004/odata/v4/main/fetchSalesByRegion
+Content-Type: application/json
+
+{
+  "region": "DE"
+}
+
+### Get all Order ID's Whose Delivery status is Delivered
+POST http://localhost:4004/odata/v4/main/askBot
+Content-Type: application/json
+
+{
+  "input": "What is the gross amount, customer id, delivery status and note of sales order 0500000000?"
+}
+
+### Get multiple salesorder with different fields 
+POST http://localhost:4004/odata/v4/main/askBot
+Content-Type: application/json
+
+{
+  "input": "What is the gross amount, customer id, delivery status and note of sales order 0500000000 ,0500000001, 0500000002, 0500000003, 0500000004, 0500000005?"
+}
 
 ####
 POST http://localhost:4004/odata/v4/main/readSalesOrders
 
 ####
-http://localhost:4004/odata/v4/main/$metadata
+
