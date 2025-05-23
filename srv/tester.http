@@ -3,7 +3,7 @@ POST http://localhost:4004/odata/v4/main/askBot
 Content-Type: application/json
 
 {
-  "input": "What is the gross amount, customer id, delivery status and note of sales order 0500000000 ,0500000001, 0500000002, 0500000003, 0500000004, 0500000005?"
+  "input": "Give me all orders whose delivery status is Initial"
 }
 
 ### Get all Order ID's Whose Delivery status is Delivered
@@ -11,7 +11,7 @@ POST http://localhost:4004/odata/v4/main/chatbot
 Content-Type: application/json
 
 {
-  "input": "Show me the lowest net amount of all orders"
+  "input": "Show me the maximum gross amount of all orders"
 }
 
 ####

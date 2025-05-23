@@ -22,7 +22,6 @@ module.exports = cds.service.impl(async function () {
     }
     return salesOrders;
   }
- 
   async function buildVectorStoreOnce() {
     if (vectorStore) return vectorStore;
  
@@ -45,11 +44,9 @@ module.exports = cds.service.impl(async function () {
  
     return vectorStore;
   }
- 
   function normalizeFieldName(field) {
     return field.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
   }
- 
   function extractRequestedFieldsFromQuestion(question, sampleRecord) {
     if (!sampleRecord) return [];
  
@@ -69,7 +66,6 @@ module.exports = cds.service.impl(async function () {
  
     return [...new Set(matchedFields)];
   }
-
   // Normalize strings for matching (e.g. camelCase -> "camel case", lower case)
   function normalizeString(str) {
     if (!str) return "";
@@ -79,7 +75,6 @@ module.exports = cds.service.impl(async function () {
       .toLowerCase()
       .trim();
   }
-  
    // Parse your /Date(1577833200000)/ format into JS Date object
    function parseJsonDate(jsonDateStr) {
     if (!jsonDateStr) return null;
@@ -205,43 +200,154 @@ module.exports = cds.service.impl(async function () {
         results
       });
     }
- 
-    //  Step 3: Try to find field + value pattern from input filtering functionality
-    let detectedField = null;
-    let detectedValue = null;
- 
-    for (const [normalizedField, originalField] of Object.entries(normalizedFieldMap)) {
-      if (lowerInput.includes(normalizedField)) {
-        const descField = Object.keys(salesOrders[0]).find(f => f.toLowerCase() === `${originalField.toLowerCase()}description`);
-        detectedField = descField || originalField;
- 
-        const regex = new RegExp(`${normalizedField}\\s*(is|=|as)?\\s*([\\w-]+)`, 'i');
-        const match = input.match(regex);
-        if (match && match[2]) {
-          detectedValue = match[2].toLowerCase();
-        }
-        break;
-      }
-    }
- 
-    if (detectedField && detectedValue) {
-      const filtered = salesOrders.filter(order => {
-        const fieldVal = order[detectedField];
-        return typeof fieldVal === 'string' && fieldVal.toLowerCase().includes(detectedValue);
-      });
- 
-      if (!filtered.length) {
-        return req.reply({
-          success: false,
-          message: `No sales orders found where "${detectedField}" equals "${detectedValue}".`
-        });
-      }
- 
-      return req.reply({
-        count: filtered.length,
-        results: filtered
-      });
-    }
+
+   // 3. Code for Top Customers and Repeated Customers
+
+   const inputText = input.toLowerCase();
+
+   // === Handle Repeated Customers ===
+   if (
+     inputText.includes("repeat") ||
+     inputText.includes("repeated orders") ||
+     inputText.includes("multiple orders") ||
+     inputText.includes("frequent orders") ||
+     inputText.includes("frequent customers") ||
+     inputText.includes("ordered again")
+   ) {
+     const repeatCustomers = {};
+   
+     for (const order of salesOrders) {
+       const id = order.CustomerID || "Unknown";
+       const name = order.CustomerName || "Unknown";
+       const key = `${name} (${id})`;
+   
+       if (!repeatCustomers[key]) {
+         repeatCustomers[key] = 0;
+       }
+       repeatCustomers[key] += 1;
+     }
+   
+     const repeated = Object.entries(repeatCustomers)
+       .filter(([, count]) => count > 1)
+       .map(([customer, count]) => ({
+         customer,
+         orderCount: count
+       }));
+   
+     // ✅ Early return
+     return req.reply([
+       {
+         success: true,
+         message: "Customers with repeat business",
+         repeatCustomers: repeated
+       }
+     ]);
+   }
+   
+   // === Handle Top Customers ===
+   if (
+     inputText.includes("top customer") ||
+     inputText.includes("top clients") ||
+     inputText.includes("top customers")
+   ) {
+     const customerSummary = {};
+   
+     for (const order of salesOrders) {
+       const customerID = order.CustomerID || "UnknownID";
+       const customerName = order.CustomerName || "Unknown Name";
+       const orderValue = parseFloat(order.NetAmount) || 0;
+   
+       const key = `${customerName} (${customerID})`;
+   
+       if (!customerSummary[key]) {
+         customerSummary[key] = { count: 0, totalValue: 0.0 };
+       }
+   
+       customerSummary[key].count += 1;
+       customerSummary[key].totalValue += orderValue;
+     }
+   
+     const sortedByValue = Object.entries(customerSummary)
+       .sort(([, a], [, b]) => b.totalValue - a.totalValue)
+       .slice(0, 5)
+       .map(([name, data]) => ({
+         customer: name,
+         orderCount: data.count,
+         totalNetValue: data.totalValue.toFixed(2)
+       }));
+   
+     // ✅ Early return
+     return req.reply([
+       {
+         success: true,
+         message: "Top customers by order value",
+         topCustomers: sortedByValue
+       }
+     ]);
+   }
+   
+   // === Generic Field + Value Detection ===
+   let detectedField = null;
+   let detectedValue = null;
+   
+   for (const [normalizedField, originalField] of Object.entries(normalizedFieldMap)) {
+     if (inputText.includes(normalizedField)) {
+       const descField = Object.keys(salesOrders[0]).find(
+         (f) => f.toLowerCase() === `${originalField.toLowerCase()}description`
+       );
+       detectedField = descField || originalField;
+   
+       const regex = new RegExp(`${normalizedField}\\s*(is|=|as)?\\s*([\\w-]+)`, "i");
+       const match = input.match(regex);
+       if (match && match[2]) {
+         detectedValue = match[2].toLowerCase();
+       }
+       break;
+     }
+   }
+   
+   if (detectedField && detectedValue) {
+     let topN;
+     let isLast = false;
+   
+     const topMatch = input.match(/\b(first)\s+(\d+)/i);
+     if (topMatch && topMatch[2]) {
+       topN = parseInt(topMatch[2]);
+     }
+   
+     const matchLast = input.match(/\blast\s+(\d+)/i);
+     if (matchLast && matchLast[1]) {
+       topN = parseInt(matchLast[1]);
+       isLast = true;
+     }
+   
+     if (!topN) {
+       return req.reply({
+         success: false,
+         message: `Please specify a valid "top N" or "last N" query (e.g., "top 10 sales orders").`
+       });
+     }
+   
+     const filtered = salesOrders.filter((order) => {
+       const fieldVal = order[detectedField];
+       return typeof fieldVal === "string" && fieldVal.toLowerCase().includes(detectedValue);
+     });
+   
+     if (!filtered.length) {
+       return req.reply({
+         success: false,
+         message: `No sales orders found where "${detectedField}" equals "${detectedValue}".`
+       });
+     }
+   
+     const limited = topN > 0 ? filtered.slice(0, topN) : filtered;
+   
+     return req.reply({
+       count: limited.length,
+       results: limited
+     });
+   }
+   
  
     // ✅ 3. Fallback to vector similarity
     const vectorResults = await vectorStore.similaritySearch(input, 10);
@@ -278,7 +384,7 @@ module.exports = cds.service.impl(async function () {
     }, {});
     const requestedFields = extractRequestedFieldsFromQuestion(input, sampleOrder);
  
-    // 🔎 Try to detect aggregate queries
+    // Try to detect aggregate queries
     const aggregateMap = {
       sum: 'sum',
       total: 'sum',
@@ -323,7 +429,7 @@ module.exports = cds.service.impl(async function () {
           return req.reply(`Total ${field} across all sales orders is ${aggregateValue.toFixed(2)}.`
           );
         }
-        else if (aggregateType === 'count') {
+      /*   else if (aggregateType === 'count') {
           // Check if user meant "number of sales orders" in general
           if (lowerInput.includes('sales order')) {
             aggregateValue = salesOrders.length;
@@ -332,7 +438,7 @@ module.exports = cds.service.impl(async function () {
        
           aggregateValue = validValues.length;
           return req.reply(`There are ${aggregateValue} sales orders with valid ${field}.`);
-        }
+        } */
         else if (['max', 'min'].includes(aggregateType)) {
           aggregateValue = Math[aggregateType](...validValues.map(o => o.value));
           const matchingOrders = validValues.filter(o => o.value === aggregateValue).map(o => o.id);
@@ -347,6 +453,44 @@ module.exports = cds.service.impl(async function () {
           return req.reply( `Average ${field} across all sales orders is ${aggregateValue.toFixed(2)}.`
         );
       }
+      else if (aggregateType === 'count') {
+        aggregateValue = salesOrders.length;
+        return req.reply(`There are ${aggregateValue} sales orders in total.`);
+      }
+      
+/*       else if (aggType === 'count') {
+      const numberMatch = inputText.match(/(?:tax|net|gross)?\s*amount?\s*(\d+(\.\d+)?)/);
+      let countResult = 0;
+ 
+      if (numberMatch) {
+        // Detect which field is mentioned (tax/net/gross)
+        let countField = null;
+        for (const [field, keywords] of Object.entries(fieldKeywords)) {
+          if (keywords.some(k => inputText.includes(k))) {
+            countField = field;
+            break;
+          }
+        }
+        if (!countField) countField = 'NetAmount';
+ 
+        const filterValue = parseFloat(numberMatch[1]);
+        countResult = salesOrders.filter(o => parseFloat(o[countField]) === filterValue).length;
+ 
+        return req.reply([{
+          success: true,
+          count: countResult,
+          message: `Count of sales orders with ${countField} = ${filterValue} is ${countResult}.`
+        }]);
+      } else {
+        // Just total count of all orders
+        countResult = salesOrders.length;
+        return req.reply([{
+          success: true,
+          count: countResult,
+          message: `Total number of sales orders is ${countResult}.`
+        }]);
+      }
+    } */
     }
   }
 
