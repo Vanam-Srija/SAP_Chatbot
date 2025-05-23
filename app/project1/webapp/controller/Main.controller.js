@@ -47,21 +47,38 @@ sap.ui.define([
           return null;
         }
     
-        // If success is true, try to format meaningful data
         if (val.hasOwnProperty('success') && val.success === true) {
           if (val.topCustomers) {
             return val.topCustomers.map(tc =>
               `${tc.customer} - Orders: ${tc.orderCount}, Total: $${tc.totalNetValue}`
             ).join("\n");
           }
+        
           if (val.repeatCustomers) {
             return val.repeatCustomers.map(rc =>
               `${rc.customer} - Orders: ${rc.orderCount}`
             ).join("\n");
           }
+        
+          if (val.latestOrders) {
+            const ordersText = val.latestOrders.map(order =>
+              `Sales Order ID: ${order.SalesOrderID}\nCreated At: ${order.CreatedAt}`
+            ).join("\n\n-------------------------\n\n");
+        
+            return `${val.message}\n\n${ordersText}`;
+          }
+        
+          if (val.orders) {
+            const ordersText = val.orders.map(order =>
+              `Sales Order ID: ${order.SalesOrderID}\nCreated At: ${order.CreatedAt}`
+            ).join("\n\n-------------------------\n\n");
+        
+            return `${val.message}\n\n${ordersText}`;
+          }
+        
           return val.message || "No message available";
         }
-    
+        
         // If no success property, try askBot style results array
         if (val.results && Array.isArray(val.results) && val.results.length > 0) {
           return val.results.map(order =>

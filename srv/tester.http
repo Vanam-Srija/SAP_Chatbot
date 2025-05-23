@@ -3,7 +3,7 @@ POST http://localhost:4004/odata/v4/main/askBot
 Content-Type: application/json
 
 {
-  "input": "Give me all orders whose delivery status is Initial"
+  "input": "Show me the recent order IDs"
 }
 
 ### Get all Order ID's Whose Delivery status is Delivered

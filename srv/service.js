@@ -348,6 +348,70 @@ module.exports = cds.service.impl(async function () {
      });
    }
    
+   //Recent SalesOrder Based on Date
+
+   // --- Helper to parse ISO date strings (like "2020-01-14T23:00:00.0000000") ---
+   const parseODataDate = (odataDate) => new Date(odataDate);
+   // --- Date based queries ---
+   const isDateQuery = inputText.includes("recent") || inputText.includes("latest") || inputText.includes("between");
+
+   if (isDateQuery) {
+     // Map sales orders with parsed CreatedAt dates
+     const orderDatePairs = salesOrders.map(order => ({
+       SalesOrderID: order.SalesOrderID,
+       CreatedAt: parseODataDate(order.CreatedAt)
+     })).filter(o => o.CreatedAt instanceof Date && !isNaN(o.CreatedAt));
+
+     // --- Latest/recent orders logic ---
+     if (inputText.includes("recent") || inputText.includes("latest")) {
+       // Extract requested number of orders, default to 5
+       const numberMatch = inputText.match(/(\d+)/);
+       const count = numberMatch ? parseInt(numberMatch[1], 10) : 5;
+
+       // Sort descending by CreatedAt and slice top 'count'
+       const sorted = orderDatePairs.sort((a, b) => b.CreatedAt - a.CreatedAt).slice(0, count);
+
+       return req.reply([{
+         success: true,
+         message: `Latest ${count} sales orders by creation date`,
+         latestOrders: sorted.map(o => ({
+           SalesOrderID: o.SalesOrderID,
+           CreatedAt: o.CreatedAt.toISOString()
+         }))
+       }]);
+     }
+
+     // --- Orders between dates logic ---
+     if (inputText.includes("between")) {
+       const datePattern = /\b(\d{4}-\d{2}-\d{2})\b/g;
+       const matches = [...inputText.matchAll(datePattern)];
+
+       if (matches.length >= 2) {
+         const [from, to] = matches.map(m => new Date(m[1]));
+
+         const inRange = orderDatePairs.filter(o =>
+           o.CreatedAt >= from && o.CreatedAt <= to
+         );
+
+         return req.reply([{
+           success: true,
+           message: `Orders between ${from.toISOString().split('T')[0]} and ${to.toISOString().split('T')[0]}`,
+           orders: inRange.map(o => ({
+             SalesOrderID: o.SalesOrderID,
+             CreatedAt: o.CreatedAt.toISOString()
+           }))
+         }]);
+       } else {
+         return req.reply([{
+           success: false,
+           message: "Please provide two valid dates in YYYY-MM-DD format."
+         }]);
+       }
+     }
+   }
+
+
+   
  
     // ✅ 3. Fallback to vector similarity
     const vectorResults = await vectorStore.similaritySearch(input, 10);
@@ -361,6 +425,10 @@ module.exports = cds.service.impl(async function () {
       count: fallbackResults.length,
       results: fallbackResults
     });
+
+
+
+
   });
 
   this.on('chatbot', async (req) => {
